@@ -1,0 +1,69 @@
+local DataStoreService = game:GetService("DataStoreService")
+local Players = game:GetService("Players")
+
+-- Define the datastore for saving player data
+local playerDataStore = DataStoreService:GetDataStore("PlayerData")
+
+-- Function to save player data
+local function savePlayerData(playerId, data)
+    local timestamp = os.time()
+    local key = tostring(playerId) .. "_backup_" .. timestamp
+    playerDataStore:SetAsync(key, data)
+    print("Backup saved for Player ID:", playerId, "at", timestamp)
+end
+
+-- Function to rollback player data
+local function rollbackPlayerData(playerId)
+    local versions = playerDataStore:ListVersionsAsync(playerId)
+    for _, versionInfo in pairs(versions:GetCurrentPage()) do
+        local data, keyInfo = playerDataStore:GetVersionAsync(playerId, versionInfo.Version)
+        if data and validateData(data) then
+            playerDataStore:SetAsync(tostring(playerId), data)
+            print("Rollback successful for Player ID:", playerId, "to version:", versionInfo.Version)
+            return true
+        end
+    end
+    warn("No valid data found to rollback for Player ID:", playerId)
+    return false
+end
+
+-- Validate data structure
+local function validateData(data)
+    return data and type(data) == "table" and data.stats and data.gems
+end
+
+-- Player join event to load data
+Players.PlayerAdded:Connect(function(player)
+    local playerId = player.UserId
+    local data = playerDataStore:GetAsync(tostring(playerId))
+    
+    if not data then
+        -- Default data for new players
+        data = {stats = {}, gems = 0, traits = {}, banner_units = {}}
+        playerDataStore:SetAsync(tostring(playerId), data)
+    end
+
+    -- Save initial backup on join
+    savePlayerData(playerId, data)
+end)
+
+-- Player leave event to save data
+Players.PlayerRemoving:Connect(function(player)
+    local playerId = player.UserId
+    local data = playerDataStore:GetAsync(tostring(playerId))
+    if data then
+        savePlayerData(playerId, data)
+    end
+end)
+
+-- Command to manually trigger rollback (example for admin use)
+game:GetService("ReplicatedStorage"):WaitForChild("RollbackRequest").OnServerEvent:Connect(function(player, targetPlayerId)
+    if player:IsInGroup(123456) then -- Replace with admin group ID
+        local success = rollbackPlayerData(targetPlayerId)
+        if success then
+            print("Rollback completed by:", player.Name)
+        else
+            print("Rollback failed by:", player.Name)
+        end
+    end
+end)
